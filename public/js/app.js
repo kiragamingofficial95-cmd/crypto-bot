@@ -199,7 +199,7 @@ function render(next) {
   els.accountNote.textContent = `${account.totalPnlPct >= 0 ? '+' : ''}${account.totalPnlPct.toFixed(2)}%`;
 
   // --- fills ---
-  renderFills(state.trades);
+  renderFills(state.trades, state.price);
   els.fillsNote.textContent = state.trades.length
     ? `${state.trades.length} fill${state.trades.length === 1 ? '' : 's'}`
     : 'no trades yet';
@@ -216,7 +216,7 @@ function render(next) {
   if (!settingsDirty) syncSettingsForm(state.settings);
 }
 
-function renderFills(trades) {
+function renderFills(trades, currentPrice) {
   const fresh = trades.filter((trade) => !seenTrades.has(trade.id));
 
   if (!trades.length) {
@@ -236,25 +236,56 @@ function renderFills(trades) {
 
   for (const trade of trades) seenTrades.add(trade.id);
   els.fillsBody.innerHTML = trades
-    .map((trade) => fillRow(trade, fresh.some((f) => f.id === trade.id)))
+    .map((trade) => fillRow(trade, fresh.some((f) => f.id === trade.id), currentPrice, closingFills(trades)))
     .join('');
 }
 
-function fillRow(trade, isNew = false) {
-  const pnl = trade.realisedPnl;
-  const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
-  const pnlText = trade.side === 'SELL'
-    ? `${pnl >= 0 ? '+' : '−'}${formatAmount(Math.abs(pnl), 2)}`
-    : '—';
+/**
+ * Maps each buy to the sell that closed it, so a buy row can report the
+ * outcome of the whole round trip rather than a blank.
+ */
+function closingFills(trades) {
+  const map = new Map();
+  for (let i = 0; i < trades.length - 1; i += 1) {
+    if (trades[i].side === 'BUY' && trades[i + 1].side === 'SELL') map.set(trades[i].id, trades[i + 1]);
+  }
+  return map;
+}
 
-  return `<tr data-id="${trade.id}"${isNew ? ` class="new-${trade.side.toLowerCase()}"` : ''}>
+function fillRow(trade, isNew, currentPrice, closes) {
+  // A sell realises its P&L on the spot. A buy only knows its outcome once it
+  // closes, so it reports the realised result of the round trip - or the
+  // live unrealised result while the position is still open.
+  let pnl = null;
+  let note = '';
+
+  if (trade.side === 'SELL') {
+    pnl = trade.realisedPnl;
+    note = 'realised on this sell';
+  } else {
+    const close = closes?.get(trade.id);
+    if (close) {
+      pnl = close.realisedPnl;
+      note = 'realised when this position closed';
+    } else if (currentPrice != null && trade.avgCost) {
+      pnl = trade.baseQty * (currentPrice - trade.avgCost);
+      note = 'unrealised - position still open';
+    }
+  }
+
+  const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+  const pnlText = pnl == null
+    ? '—'
+    : `${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return `<tr data-id="${trade.id}" class="${isNew ? `new-${trade.side.toLowerCase()}` : ''}${note.includes('still open') ? ' open-row' : ''}">
     <td>${new Date(trade.ts).toLocaleTimeString()}</td>
     <td><span class="side-tag ${trade.side === 'BUY' ? 'buy' : 'sell'}">${trade.side}</span></td>
     <td>${formatPrice(trade.price)}</td>
     <td>${formatAmount(trade.baseQty, 6)}</td>
     <td>${formatAmount(trade.quoteQty, 2)}</td>
     <td>${formatAmount(trade.fee, 6)}</td>
-    <td class="num ${pnlClass}">${pnlText}</td>
+    <td class="num ${pnlClass}" title="${note}">${pnlText}</td>
   </tr>`;
 }
 
