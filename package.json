@@ -10,7 +10,7 @@
     "dev": "node --watch src/server.js",
     "test": "node --test test/strategy.test.js",
     "seed": "node scripts/seed-demo.js",
-    "measure-delay": "node scripts/measure-delay.js"
+    "measure-delay": "node scripts/measure-delay.js", "compare-price": "node scripts/compare-price.js", "lag-direction": "node scripts/lag-direction.js"
   },
   "engines": {
     "node": ">=20.12"
