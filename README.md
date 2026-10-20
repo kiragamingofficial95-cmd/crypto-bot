@@ -264,6 +264,48 @@ Health checks are exempt so the platform can still probe the service.
 | `AUTH_PASSWORD` | *(empty)* | Empty means no login at all |
 | `AUTH_SECRET` | *(derived)* | Fixed secret for the session cookie |
 
+### Feed latency — measured, not assumed
+
+The default feed is CoinGecko's Demo tier, which is **not** a real-time
+market data source. Measured against Binance US and Coinbase with
+`npm run measure-delay` (cross-correlation of the price-change series):
+
+| Measure | Value |
+| --- | --- |
+| CoinGecko returns a genuinely new price | once every **60–80 s** |
+| Lag behind the live market | **~130 s** (correlation 0.63 vs Coinbase) |
+| Ticks that are byte-identical to the previous tick | **66%** at a 20 s poll |
+
+Two consequences worth knowing:
+
+1. Polling faster than the cache changes nothing — two polls out of three
+   return the same number.
+2. The averages are computed over *ticks*, so a "10-tick fast average" is
+   really averaging three or four distinct prices, and a crossover fires up
+   to a couple of minutes after the market actually crossed. That step-like
+   behaviour is also what drives the whipsaws.
+
+If you want real-time behaviour, point the bot at a live exchange feed
+instead. The `POST /api/tick` hook already accepts any price source, so it
+only needs a small bridge:
+
+```js
+// bridge.mjs - Binance public WebSocket, no API key required
+const ws = new WebSocket('wss://stream.binance.com:9443/ws/bnbusdt@bookTicker');
+ws.on('message', async (raw) => {
+  const { a, b } = JSON.parse(raw);          // best ask, best bid
+  const price = (Number(a) + Number(b)) / 2;
+  await fetch('http://localhost:3000/api/tick', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ price, t: Date.now() }),
+  });
+});
+```
+
+`@bookTicker` pushes on every price change rather than only on trades, which
+suits this bot better than `@trade`.
+
 ---
 
 ## Configuration

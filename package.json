@@ -9,7 +9,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test test/strategy.test.js",
-    "seed": "node scripts/seed-demo.js"
+    "seed": "node scripts/seed-demo.js",
+    "measure-delay": "node scripts/measure-delay.js"
   },
   "engines": {
     "node": ">=20.12"
