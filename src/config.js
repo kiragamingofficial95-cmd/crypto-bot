@@ -58,9 +58,25 @@ export const config = {
   },
 
   feed: {
+    // "binance" streams the live market over a websocket, "coingecko" polls
+    // the aggregate price. The binance feed is the default because it is
+    // real time; the coingecko feed is slow by design.
+    source: str(process.env.FEED_SOURCE, 'binance').toLowerCase(),
     pollMs: num(process.env.POLL_MS, 20000),
     maxHistory: num(process.env.MAX_HISTORY, 2000),
     requestTimeoutMs: num(process.env.REQUEST_TIMEOUT_MS, 15000),
+
+    binance: {
+      symbol: str(process.env.BINANCE_SYMBOL, 'BNBUSDT').toUpperCase(),
+      // "perp" is the USD-M perpetual (BINANCE:BNBUSDT.P on TradingView),
+      // "spot" is the spot market.
+      market: str(process.env.BINANCE_MARKET, 'perp').toLowerCase(),
+    },
+
+    // Ticks are resampled into bars of this length and the moving averages
+    // run over bar closes. 60000 means a bar is one minute, so a fast
+    // average of 10 covers ten minutes.
+    barMs: num(process.env.BAR_MS, 60000),
   },
 
   broker: {
@@ -105,6 +121,7 @@ export function sanitiseSettings(input = {}) {
     ? String(input.maType).toLowerCase()
     : config.strategy.maType;
   out.pollMs = Math.min(300000, Math.max(2000, Math.round(num(input.pollMs, config.feed.pollMs))));
+  out.barMs = Math.min(3600000, Math.max(1000, Math.round(num(input.barMs, config.feed.barMs))));
   out.buyFraction = Math.min(1, Math.max(0.01, num(input.buyFraction, config.broker.buyFraction)));
   out.feeRate = Math.min(0.05, Math.max(0, num(input.feeRate, config.broker.feeRate)));
 

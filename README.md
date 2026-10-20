@@ -126,6 +126,33 @@ curl -X POST http://localhost:3000/api/tick \
   -d '{"price": 731.42, "t": 1730000000000}'
 ```
 
+### The feed
+
+Two feeds are supported, selected with `FEED_SOURCE`.
+
+**`binance` (default)** streams the live market over a websocket:
+
+| `BINANCE_MARKET` | Symbol | TradingView | Stream |
+| --- | --- | --- | --- |
+| `perp` | `BNBUSDT` | `BINANCE:BNBUSDT.P` | `wss://fstream.binance.com/ws/bnbusdt@bookTicker` |
+| `spot` | `BNBUSDT` | `BINANCE:BNBUSDT` | `wss://stream.binance.com:9443/ws/bnbusdt@bookTicker` |
+
+The socket pushes on every price change — far too fast to feed a moving
+average — so ticks are **resampled into bars** and the averages run over bar
+closes. `BAR_MS` sets the bar length, which is what the timeframe actually
+means now:
+
+```
+BAR_MS=60000, fast 10 / slow 30   ->   10 minute average vs 30 minute average
+```
+
+The headline price on the dashboard is the newest trade, so it is live; the
+chart and the averages are on bars, so they are not.
+
+**`coingecko`** polls the aggregate price as it always did. It is kept for
+comparison and for the 24 hour figure, but it is slow by design — see
+[Feed latency](#feed-latency--measured-not-assumed).
+
 ---
 
 ## Dashboard

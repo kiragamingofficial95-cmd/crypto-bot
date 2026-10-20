@@ -50,6 +50,7 @@ const els = {
   inLong: $('in-long'),
   inType: $('in-type'),
   inPoll: $('in-poll'),
+  inBar: $('in-bar'),
   inTick: $('in-tick'),
   toast: $('toast'),
 };
@@ -105,8 +106,11 @@ function render(next) {
   state = next;
 
   els.pair.textContent = state.pair;
-  els.feed.textContent = state.source === 'coingecko' ? 'CoinGecko' : `pushed (${state.source})`;
-  els.bars.textContent = `${state.bars} bars`;
+  els.feed.textContent = state.sourceLabel || (state.source === 'coingecko' ? 'CoinGecko' : 'Binance');
+  const barMs = state.market?.barMs;
+  els.bars.textContent = barMs
+    ? `${state.bars} × ${barLabel(barMs)} bars`
+    : `${state.bars} bars`;
 
   els.statusChip.dataset.status = state.status;
   els.statusText.textContent = state.status === 'rate-limited' ? 'rate limited' : state.status;
@@ -294,6 +298,15 @@ function syncSettingsForm(settings) {
   els.inLong.value = settings.longPeriod;
   els.inType.value = settings.maType;
   els.inPoll.value = Math.round(settings.pollMs / 1000);
+  if (settings.barMs) els.inBar.value = Math.round(settings.barMs / 1000);
+}
+
+/** Formats a bar length as a readable label such as "1m" or "15s". */
+function barLabel(barMs) {
+  if (!barMs) return '';
+  if (barMs % 3600000 === 0) return `${barMs / 3600000}h`;
+  if (barMs % 60000 === 0) return `${barMs / 60000}m`;
+  return `${Math.round(barMs / 1000)}s`;
 }
 
 /* -------------------------------------------------------------- transport */
@@ -333,6 +346,7 @@ els.form.addEventListener('submit', async (event) => {
     longPeriod: Number(els.inLong.value),
     maType: els.inType.value,
     pollMs: Number(els.inPoll.value) * 1000,
+    barMs: Number(els.inBar.value) * 1000,
   };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(settings) });
@@ -343,7 +357,7 @@ els.form.addEventListener('submit', async (event) => {
   }
 });
 
-['inShort', 'inLong', 'inType', 'inPoll'].forEach((id) => {
+['inShort', 'inLong', 'inType', 'inPoll', 'inBar'].forEach((id) => {
   els[id].addEventListener('input', () => { settingsDirty = true; });
 });
 

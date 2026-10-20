@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { config, sanitiseSettings } from './config.js';
 import { logger } from './logger.js';
 import { fetchPairPrice, RateLimitError } from './coingecko.js';
+import { BinanceFeed } from './feeds/binance.js';
 import { evaluate, SIGNAL } from './strategy.js';
 import { maSeries } from './indicators.js';
 import { PaperBroker } from './broker.js';
@@ -30,8 +31,17 @@ export class Engine extends EventEmitter {
     this.running = false;
     this.pollCount = 0;
     this.lastEvaluation = null;
-    this.source = 'coingecko';
+    this.source = config.feed.source === 'binance' ? 'binance' : 'coingecko';
     this.change24h = null;
+
+    // The newest traded price, which can be far newer than the last bar
+    // close. The averages run over bars; the headline shows this.
+    this.livePrice = null;
+    this.livePriceAt = null;
+    this.broadcastTimer = null;
+    this.pendingBroadcast = false;
+
+    this.feed = null;
 
     this.restore();
   }
@@ -80,16 +90,64 @@ export class Engine extends EventEmitter {
   async start() {
     if (this.running) return;
     this.running = true;
-    logger.info(`Engine starting on ${config.market.pair} (${this.settings.maType.toUpperCase()} ${this.settings.shortPeriod}/${this.settings.longPeriod})`);
-    await this.poll();
-    this.scheduleNext();
+    logger.info(
+      `Engine starting on ${config.market.pair} (${this.settings.maType.toUpperCase()} ${this.settings.shortPeriod}/${this.settings.longPeriod})`
+    );
+
+    if (this.source === 'binance') {
+      this.startBinanceFeed();
+    } else {
+      await this.poll();
+      this.scheduleNext();
+    }
     this.emit('state', this.getState());
+  }
+
+  /**
+   * Streams the live market over a websocket. Ticks update the headline
+   * price immediately; the bar closes drive the averages.
+   */
+  startBinanceFeed() {
+    this.feed = new BinanceFeed({
+      symbol: config.feed.binance.symbol,
+      market: config.feed.binance.market,
+      barMs: this.settings.barMs ?? config.feed.barMs,
+    });
+
+    this.feed.on('tick', ({ price }) => {
+      this.lastFetchAt = Date.now();
+      this.updateLivePrice(price);
+    });
+
+    this.feed.on('bar', (bar) => {
+      this.ingest(bar.close, 'binance', bar.t);
+    });
+
+    this.feed.on('status', (status) => {
+      if (status.change24h != null) this.change24h = status.change24h;
+      if (status.state === 'live') {
+        this.status = STATUS.LIVE;
+        this.lastError = null;
+      } else if (status.state === 'reconnecting' || status.state === 'connecting') {
+        if (this.status === STATUS.LIVE) this.status = STATUS.STARTING;
+      }
+      this.emit('state', this.getState());
+    });
+
+    this.feed.start();
+    logger.info(
+      `Feed: ${this.feed.label} ${this.feed.symbol} streaming, bars of ${Math.round(this.feed.barMs / 1000)}s`
+    );
   }
 
   stop() {
     this.running = false;
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = null;
+    if (this.broadcastTimer) clearTimeout(this.broadcastTimer);
+    this.broadcastTimer = null;
+    if (this.feed) this.feed.stop();
+    this.feed = null;
     this.status = STATUS.STOPPED;
     this.persist({ immediate: true });
     logger.info('Engine stopped');
@@ -143,8 +201,27 @@ export class Engine extends EventEmitter {
   }
 
   /**
+   * Records the newest traded price without touching the bar series.
+   *
+   * A websocket feed produces many ticks a second, so the broadcast is
+   * throttled - the dashboard does not need a message per print.
+   */
+  updateLivePrice(price) {
+    if (!Number.isFinite(price) || price <= 0) return;
+    this.livePrice = price;
+    this.livePriceAt = Date.now();
+
+    if (this.broadcastTimer) return;
+    this.broadcastTimer = setTimeout(() => {
+      this.broadcastTimer = null;
+      this.emit('state', this.getState());
+    }, 500);
+    this.broadcastTimer.unref?.();
+  }
+
+  /**
    * Feeds a price into the pipeline. This is the single entry point for data,
-   * whether it came from CoinGecko or was pushed in manually.
+   * whether it came from a bar close, from CoinGecko or was pushed in manually.
    *
    * @param {number} price
    * @param {string} source
@@ -158,6 +235,8 @@ export class Engine extends EventEmitter {
 
     const ts = Number.isFinite(timestamp) ? timestamp : Date.now();
     this.source = source;
+    this.livePrice = price;
+    this.livePriceAt = ts;
     this.history.push({ t: ts, p: price });
     if (this.history.length > config.feed.maxHistory) {
       this.history = this.history.slice(-config.feed.maxHistory);
@@ -198,10 +277,11 @@ export class Engine extends EventEmitter {
   updateSettings(patch) {
     this.settings = sanitiseSettings({ ...this.settings, ...patch });
     this.broker.applySettings(this.settings);
+    if (this.feed) this.feed.setBarMs(this.settings.barMs);
     logger.info(`Settings updated: ${JSON.stringify(this.settings)}`);
     // Apply the new poll interval immediately rather than waiting for the
     // pending timer to fire.
-    if (this.running) this.scheduleNext();
+    if (this.running && this.source === 'coingecko') this.scheduleNext();
     this.emit('state', this.getState());
     return this.settings;
   }
@@ -252,7 +332,10 @@ export class Engine extends EventEmitter {
 
   getState() {
     const last = this.history.at(-1);
-    const price = last?.p ?? null;
+    // The headline price is the newest trade, which for a websocket feed is
+    // far newer than the last bar close the averages are built on.
+    const price = this.livePrice ?? last?.p ?? null;
+    const barClose = last?.p ?? null;
     const snapshot = this.broker.markToMarket(price ?? 0);
 
     const chartWindow = this.history.slice(-600);
@@ -274,13 +357,16 @@ export class Engine extends EventEmitter {
       quoteSymbol: config.market.quoteSymbol,
       status: this.status,
       source: this.source,
+      sourceLabel: this.source === 'binance' ? (this.feed?.label ?? 'Binance') : 'CoinGecko',
       lastError: this.lastError,
       lastFetchAt: this.lastFetchAt,
+      livePriceAt: this.livePriceAt,
       nextPollAt: this.nextPollAt,
       pollCount: this.pollCount,
       running: this.running,
       settings: this.settings,
       price,
+      barClose,
       prevClose,
       changePct: price && prevClose ? ((price - prevClose) / prevClose) * 100 : null,
       change24h: this.change24h,
@@ -301,6 +387,11 @@ export class Engine extends EventEmitter {
         quoteId: config.market.quoteId,
         apiKeyConfigured: Boolean(config.coingecko.apiKey),
         keyType: config.coingecko.apiKey ? config.coingecko.keyType : 'none',
+        feedSource: this.source,
+        binanceSymbol: config.feed.binance.symbol,
+        binanceMarket: config.feed.binance.market,
+        barMs: this.settings.barMs ?? config.feed.barMs,
+        feedState: this.feed?.state ?? null,
       },
       firstTs: first?.t ?? null,
     };

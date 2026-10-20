@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test test/strategy.test.js",
+    "test": "node --test test/strategy.test.js test/feed.test.js",
     "seed": "node scripts/seed-demo.js",
     "measure-delay": "node scripts/measure-delay.js", "compare-price": "node scripts/compare-price.js", "lag-direction": "node scripts/lag-direction.js"
   },
