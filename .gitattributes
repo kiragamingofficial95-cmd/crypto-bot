@@ -1,0 +1,7 @@
+# Normalise line endings in the repository. The container image is Linux, so
+# LF is what should be stored; Windows checkouts still get CRLF locally.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

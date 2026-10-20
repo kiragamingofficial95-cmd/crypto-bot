@@ -1,0 +1,21 @@
+{
+  "name": "ma-cross-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Paper-trading MA crossover bot for BNB/USDT with a live dashboard.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/strategy.test.js",
+    "seed": "node scripts/seed-demo.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Paper-trading moving-average crossover bot for BNB/USDT with a live dashboard, fed by CoinGecko." />
+<meta name="robots" content="noindex, nofollow" />
+<title>Cross Engine — BNB/USDT paper bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./css/app.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 24 L28 8' stroke='%230E7C6B' stroke-width='4' fill='none'/><path d='M4 8 L28 24' stroke='%236E86A8' stroke-width='4' fill='none'/></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M4 25 L28 7" />
+      <path d="M4 7 L28 25" class="slow" />
+    </svg>
+    <div class="brand-text">
+      <h1>Cross Engine</h1>
+      <p>Moving-average crossover, paper only</p>
+    </div>
+  </div>
+
+  <div class="market-strip">
+    <span class="pair" id="pair-name">BNB/USDT</span>
+    <span class="strip-sep"></span>
+    <span class="strip-item" id="feed-name">CoinGecko</span>
+    <span class="strip-sep"></span>
+    <span class="strip-item" id="bars-count">0 bars</span>
+  </div>
+
+  <div class="topbar-right">
+    <div class="status-chip" id="status-chip" data-status="starting">
+      <span class="status-dot"></span>
+      <span id="status-text">starting</span>
+    </div>
+    <button type="button" class="btn" id="btn-poll">Poll now</button>
+    <button type="button" class="btn btn-quiet" id="btn-reset">Reset</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ── Hero: price + chart ─────────────────────────────────────────── -->
+  <section class="panel panel-chart">
+    <div class="panel-head">
+      <div class="price-block">
+        <span class="price" id="price">—</span>
+        <span class="delta" id="delta"></span>
+      </div>
+      <div class="chart-key">
+        <div class="legend">
+          <span class="legend-item"><i class="swatch swatch-price"></i>Price</span>
+          <span class="legend-item"><i class="swatch swatch-fast"></i>Fast <b id="legend-fast">—</b></span>
+          <span class="legend-item"><i class="swatch swatch-slow"></i>Slow <b id="legend-slow">—</b></span>
+          <span class="legend-item"><i class="swatch swatch-range"></i>Session <b id="legend-range">—</b></span>
+        </div>
+        <div class="ribbon-key">
+          <span class="key-item"><i class="swatch swatch-above"></i>fast above slow</span>
+          <span class="key-item"><i class="swatch swatch-below"></i>fast below slow</span>
+          <span class="key-item"><i class="swatch swatch-position"></i>in position</span>
+        </div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart" role="img" aria-label="Price chart with fast and slow moving averages"></canvas>
+      <div class="chart-empty" id="chart-empty">Waiting for the first ticks…</div>
+      <div class="chart-tip" id="chart-tip" hidden></div>
+    </div>
+  </section>
+
+  <!-- ── Rail ───────────────────────────────────────────────────────── -->
+  <aside class="rail">
+
+    <section class="panel panel-signal">
+      <div class="panel-head">
+        <h2>Signal</h2>
+        <span class="head-note" id="signal-reason">—</span>
+      </div>
+      <div class="signal-body">
+        <div class="signal-word" id="signal-word" aria-live="polite">FLAT</div>
+        <div class="signal-spread">
+          <div class="spread-bar"><span id="spread-fill"></span><i class="spread-axis"></i></div>
+          <div class="spread-meta">
+            <span>Fast − slow</span>
+            <b id="spread-value">—</b>
+          </div>
+        </div>
+        <div class="trigger" id="trigger-box">
+          <span class="trigger-label" id="trigger-label">Next trigger</span>
+          <span class="trigger-price" id="trigger-price">—</span>
+          <span class="trigger-away" id="trigger-away"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Averages</h2></div>
+      <dl class="kv">
+        <div class="kv-row"><dt>Fast <span id="avg-fast-period">10</span></dt><dd id="avg-fast">—</dd></div>
+        <div class="kv-row"><dt>Slow <span id="avg-slow-period">30</span></dt><dd id="avg-slow">—</dd></div>
+        <div class="kv-row"><dt>Difference</dt><dd id="avg-diff">—</dd></div>
+        <div class="kv-row"><dt>Type</dt><dd id="avg-type">SMA</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Position</h2><span class="head-note" id="position-note">no open position</span></div>
+      <dl class="kv">
+        <div class="kv-row"><dt id="base-label">BNB held</dt><dd id="pos-base">0</dd></div>
+        <div class="kv-row"><dt>Average cost</dt><dd id="pos-avg">—</dd></div>
+        <div class="kv-row"><dt>Market value</dt><dd id="pos-value">—</dd></div>
+        <div class="kv-row"><dt>Unrealised P&amp;L</dt><dd id="pos-pnl">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Account</h2><span class="head-note" id="account-note">paper</span></div>
+      <dl class="kv">
+        <div class="kv-row"><dt>Equity</dt><dd id="acct-equity">—</dd></div>
+        <div class="kv-row"><dt>Free quote</dt><dd id="acct-quote">—</dd></div>
+        <div class="kv-row"><dt>Total P&amp;L</dt><dd id="acct-pnl">—</dd></div>
+        <div class="kv-row"><dt>Fees paid</dt><dd id="acct-fees">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Strategy</h2></div>
+      <form class="controls" id="settings-form">
+        <div class="control-grid">
+          <label>Fast period<input type="number" id="in-short" min="2" max="200" step="1" /></label>
+          <label>Slow period<input type="number" id="in-long" min="3" max="500" step="1" /></label>
+          <label>Average type
+            <select id="in-type">
+              <option value="sma">SMA</option>
+              <option value="ema">EMA</option>
+            </select>
+          </label>
+          <label>Poll seconds<input type="number" id="in-poll" min="2" max="300" step="1" /></label>
+        </div>
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </form>
+
+      <div class="manual">
+        <div class="manual-row">
+          <span class="manual-label">Manual order</span>
+          <div class="manual-actions">
+            <button type="button" class="btn btn-buy" id="btn-buy">Buy</button>
+            <button type="button" class="btn btn-sell" id="btn-sell">Sell</button>
+          </div>
+        </div>
+        <div class="manual-row">
+          <span class="manual-label">Push price</span>
+          <div class="manual-actions">
+            <input type="number" id="in-tick" step="any" placeholder="e.g. 615.40" inputmode="decimal" />
+            <button type="button" class="btn" id="btn-tick">Feed</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ── Fills + equity ─────────────────────────────────────────────── -->
+  <section class="panel panel-fills">
+    <div class="panel-head"><h2>Fills</h2><span class="head-note" id="fills-note">no trades yet</span></div>
+    <div class="table-wrap">
+      <table class="fills">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Side</th>
+            <th scope="col">Price</th>
+            <th scope="col">Size</th>
+            <th scope="col">Value</th>
+            <th scope="col">Fee</th>
+            <th scope="col" class="num">Realised</th>
+          </tr>
+        </thead>
+        <tbody id="fills-body">
+          <tr class="empty-row"><td colspan="7">The crossover has not fired yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel panel-equity">
+    <div class="panel-head">
+      <h2>Equity</h2>
+      <span class="head-note" id="equity-note">—</span>
+    </div>
+    <div class="equity-wrap">
+      <canvas id="equity-chart" role="img" aria-label="Account equity over time"></canvas>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
