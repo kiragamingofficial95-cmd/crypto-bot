@@ -291,6 +291,9 @@ body {
   color: var(--ink-3);
   pointer-events: none;
 }
+/* The hidden attribute is only display:none in the user-agent sheet, so an
+   author rule with an explicit display would otherwise defeat it. */
+.chart-empty[hidden] { display: none; }
 .chart-tip {
   position: absolute;
   pointer-events: none;
@@ -380,6 +383,7 @@ body {
 }
 .trigger[data-side="BUY"] { border-color: var(--teal); background: var(--teal-wash); }
 .trigger[data-side="SELL"] { border-color: var(--oxide); background: var(--oxide-wash); }
+.trigger[hidden] { display: none; }
 .trigger-label {
   grid-column: 1 / -1;
   font-size: 11px;
