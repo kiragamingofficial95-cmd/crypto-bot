@@ -205,8 +205,8 @@ instance, so the bot state cannot be broadcast to every connected dashboard.
 
 ### Railway
 
-The repo already contains a `Dockerfile` and a `railway.json`, so Railway
-detects the setup on its own.
+The repo contains a `Dockerfile` and a `.railway/railway.ts` authoring file, so
+Railway builds the image and keeps its infrastructure in source control.
 
 1. Push the project to GitHub and create a Railway project from the repo.
 2. Railway builds the `Dockerfile` and serves on the port it assigns.
@@ -220,13 +220,28 @@ detects the setup on its own.
    | `AUTH_PASSWORD` | a long password — **the dashboard is open without it** |
    | `DATA_DIR` | `/data` |
 
-4. Add a **volume** mounted at `/data`, and set `DATA_DIR=/data`. Without a
-   volume the bot loses its history and positions on every redeploy.
+4. The volume is declared in `.railway/railway.ts` and mounted at `/data`.
+   Without it the bot loses its history and positions on every redeploy.
 5. Deploy. Railway gives you a `*.up.railway.app` URL; the browser will ask
    for the Basic credentials you set.
 
 The `/health` route is used as the health check and deliberately stays
 unauthenticated so Railway can reach it.
+
+Variables are marked **unmanaged** in the IaC file on purpose — the CoinGecko
+key and the dashboard password stay in Railway's variable store and are never
+written into the repository.
+
+#### Working with the IaC file
+
+```bash
+npm install            # installs the railway SDK used to evaluate the file
+railway config plan    # preview what would change
+railway config apply   # apply it
+```
+
+The `railway` package is a **dev** dependency; the container image installs
+production dependencies only.
 
 ### Authentication
 
@@ -317,11 +332,14 @@ src/
   server.js      HTTP routes + WebSocket
   engine.js      feed → strategy → broker pipeline, state broadcast
   strategy.js    crossover detection
-  indicators.js  SMA / EMA maths
+  indicators.js  SMA / EMA maths, trigger price
   broker.js      paper trading account, fees, P&L
   coingecko.js   CoinGecko client with key headers and backoff
+  auth.js        HTTP Basic + signed session cookie
   store.js       atomic JSON persistence
   config.js      environment configuration
+.railway/
+  railway.ts     Railway infrastructure as code
 public/
   index.html     dashboard markup
   css/app.css    styles
